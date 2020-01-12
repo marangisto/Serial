@@ -21,6 +21,7 @@ import System.IO
 data Options = Options
     { port      :: FilePath
     , dir       :: Maybe FilePath
+    , midi      :: Bool
     , files     :: [FilePath]
     } deriving (Show, Eq, Data, Typeable)
 
@@ -28,6 +29,7 @@ options :: Main.Options
 options = Main.Options
     { port = def &= help "serial port"
     , dir = def &= help "working directory"
+    , midi = def &= help "midi-mode"
     , files = def &= args &= typ "FILES"
     } &=
     verbosity &=
@@ -54,15 +56,15 @@ main = do
     withSerial port defaultSerialSettings { commSpeed = CS115200 } $ \port -> do
         --liftIO $ threadDelay 100000
         getSerial port >>= putStr . B.unpack
-        processInput port =<< liftIO initial
+        processInput opts port =<< liftIO initial
 
-processInput :: SerialPort -> IORef GCRef -> IO ()
-processInput port gcref = runInputT defaultSettings loop
+processInput :: Options -> SerialPort -> IORef GCRef -> IO ()
+processInput opts port gcref = runInputT defaultSettings loop
     where loop :: InputT IO ()
           loop = getInputLine "> " >>= \x -> case x of
               Nothing -> quit
               Just cmd | Just x <- stripPrefix ":" cmd -> if x == "q" then quit else do
-                  e <- liftIO $ try $ localCommand port gcref x
+                  e <- liftIO $ try $ localCommand opts port gcref x
                   either (\(SomeException x) -> liftIO $ print x) return e
                   loop
               Just cmd -> do
@@ -75,13 +77,13 @@ processInput port gcref = runInputT defaultSettings loop
               --liftIO $ threadDelay 1000000
               return ()
 
-localCommand :: SerialPort -> IORef GCRef -> String -> IO ()
-localCommand port gcref cmd = case cmd of
+localCommand :: Options -> SerialPort -> IORef GCRef -> String -> IO ()
+localCommand opts port gcref cmd = case cmd of
     _ | Just fp <- stripPrefix "l " cmd -> load gcref fp
     _ | Just dir <- stripPrefix "cd " cmd -> setCurrentDirectory dir
     "pwd"       -> getCurrentDirectory >>= putStrLn
-    "s"         -> void $ singleStep port gcref
-    "r"         -> void $ iterateWhile id $ singleStep port gcref
+    "s"         -> void $ singleStep opts port gcref
+    "r"         -> void $ iterateWhile id $ singleStep opts port gcref
     "x"         -> reset port
     "rew"       -> modifyIORef' gcref $ \(h, t) -> (t ++ h, [])
     ('!':str)   -> void $ system str
@@ -111,22 +113,23 @@ load gcref fp = do
     putStrLn $ show (length gcode) ++ " lines"
     writeIORef gcref (zip [1..] gcode, [])
 
-singleStep :: SerialPort -> IORef GCRef -> IO Bool
-singleStep port gcref = readIORef gcref >>= \gc -> case gc of
+singleStep :: Options -> SerialPort -> IORef GCRef -> IO Bool
+singleStep opts port gcref = readIORef gcref >>= \gc -> case gc of
     ([], _) -> return False
     ((x@(i, s):xs), ys) -> do
         let gcode = B.unpack s
         putStr $ show i ++ "\t" ++ gcode
         hFlush stdout
-        case gcode of
-            ('T':_) -> do
-                putStr "tool change (press enter when done):"
-                hFlush stdout
-                void getLine
-            _ -> do
-                send port $ B.snoc s '\n'
-                res <- liftIO $ getOneLine port
-                putStr $ pad 40 (B.length s) ++ B.unpack res
+        if midi opts
+        then do
+            let (ts:ws) = words gcode
+                ticks = read ts
+            when (ticks > 0) $ liftIO $ threadDelay $ ticks * 1000
+            send port $ B.pack $ unwords ws <> "\n"
+        else do
+            send port $ B.snoc s '\n'
+        res <- liftIO $ getOneLine port
+        putStr $ pad 40 (B.length s) ++ B.unpack res
         writeIORef gcref (xs, ys ++ [x])
         return True
 
