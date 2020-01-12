@@ -5,51 +5,137 @@ import System.Console.CmdArgs
 import qualified Data.ByteString.Char8 as B
 import System.Hardware.Serialport
 import System.Console.Haskeline
+import System.Process (system)
+import System.Directory
 import Control.Concurrent
+import Control.Exception
 import Control.Monad.IO.Class
+import Control.Monad.Loops
+import Control.Monad.Extra
 import Control.Monad
-import Data.List (find, group, sort)
+import Data.List (stripPrefix)
 import Data.Maybe
+import Data.IORef
 import System.IO
 
 data Options = Options
     { port      :: FilePath
-    , sample    :: Maybe Int
+    , dir       :: Maybe FilePath
     , files     :: [FilePath]
     } deriving (Show, Eq, Data, Typeable)
 
 options :: Main.Options
 options = Main.Options
     { port = def &= help "serial port"
-    , sample = def &= help "number of samples per run"
+    , dir = def &= help "working directory"
     , files = def &= args &= typ "FILES"
     } &=
     verbosity &=
     help "Serial terminal" &=
-    summary "Serial v0.0.0, (c) Bengt Marten Agren 2019" &=
+    summary "Serial v0.1.0, (c) Bengt Marten Agren 2019, 2020" &=
     details [ "This is a simple serial terminal"
             ]
+
+type Line = (Int, B.ByteString)
+type GCRef = ([Line], [Line])
 
 main :: IO ()
 main = do
     opts@Options{..} <- cmdArgs options
-    hSetNewlineMode stdout noNewlineTranslation
+    whenJust dir setCurrentDirectory
+    -- hSetNewlineMode stdout noNewlineTranslation
     print opts
-    h <- hOpenSerial port defaultSerialSettings { commSpeed = CS115200 }
-    case sample of
-        Just n -> sampleProcess h n
-        _ -> forever $ do
-            hGetLine h >>= putStrLn
-            hFlush stdout
+    let initial = do
+            ref <- newIORef ([], [])
+            case files of
+                []          -> return ref
+                (file:[])   -> do { load ref file; return ref }
+                _           -> error "multi-file load not yet supported"
+    withSerial port defaultSerialSettings { commSpeed = CS115200 } $ \port -> do
+        --liftIO $ threadDelay 100000
+        getSerial port >>= putStr . B.unpack
+        processInput port =<< liftIO initial
 
-sampleProcess :: Handle -> Int -> IO ()
-sampleProcess h n = forever $ do
-    xs <- takeSamples h n
-    print $ summarize xs
-    hFlush stdout
+processInput :: SerialPort -> IORef GCRef -> IO ()
+processInput port gcref = runInputT defaultSettings loop
+    where loop :: InputT IO ()
+          loop = getInputLine "> " >>= \x -> case x of
+              Nothing -> quit
+              Just cmd | Just x <- stripPrefix ":" cmd -> if x == "q" then quit else do
+                  e <- liftIO $ try $ localCommand port gcref x
+                  either (\(SomeException x) -> liftIO $ print x) return e
+                  loop
+              Just cmd -> do
+                  liftIO $ send port $ B.pack $ cmd ++ "\n"
+                  res <- liftIO $ getSerial port
+                  outputStr $ B.unpack res
+                  loop
+          quit = do
+              outputStr "quitting..."
+              --liftIO $ threadDelay 1000000
+              return ()
 
-takeSamples :: Handle -> Int -> IO [Int]
-takeSamples h n = forM [0..n-1] $ \_ -> (read <$> hGetLine h)
+localCommand :: SerialPort -> IORef GCRef -> String -> IO ()
+localCommand port gcref cmd = case cmd of
+    _ | Just fp <- stripPrefix "l " cmd -> load gcref fp
+    _ | Just dir <- stripPrefix "cd " cmd -> setCurrentDirectory dir
+    "pwd"       -> getCurrentDirectory >>= putStrLn
+    "s"         -> void $ singleStep port gcref
+    "r"         -> void $ iterateWhile id $ singleStep port gcref
+    "x"         -> reset port
+    "rew"       -> modifyIORef' gcref $ \(h, t) -> (t ++ h, [])
+    ('!':str)   -> void $ system str
+    _           -> error "unrecognized gcs command"
 
-summarize :: [Int] -> [(Int, Int)]
-summarize = map (\xs@(x:_) -> (x, length xs)) . group . sort
+getOneLine :: SerialPort -> IO B.ByteString
+getOneLine port = loop where
+    loop = do
+        x <- recv port 1
+        case B.unpack x of
+           "\n" -> return x
+           _ -> B.append x <$> loop
+
+getSerial :: SerialPort -> IO B.ByteString
+getSerial port = loop where
+    loop = do
+        x <- recv port 256
+        if B.null x then return B.empty else B.append x `liftM` loop
+
+bang :: String -> IO ()
+bang = void . system
+
+load :: IORef GCRef -> FilePath -> IO ()
+load gcref fp = do
+    gcode <- B.lines . B.filter (/='\r') <$> B.readFile fp
+    mapM_ (putStrLn . B.unpack) $ take 10 gcode
+    putStrLn $ show (length gcode) ++ " lines"
+    writeIORef gcref (zip [1..] gcode, [])
+
+singleStep :: SerialPort -> IORef GCRef -> IO Bool
+singleStep port gcref = readIORef gcref >>= \gc -> case gc of
+    ([], _) -> return False
+    ((x@(i, s):xs), ys) -> do
+        let gcode = B.unpack s
+        putStr $ show i ++ "\t" ++ gcode
+        hFlush stdout
+        case gcode of
+            ('T':_) -> do
+                putStr "tool change (press enter when done):"
+                hFlush stdout
+                void getLine
+            _ -> do
+                send port $ B.snoc s '\n'
+                res <- liftIO $ getOneLine port
+                putStr $ pad 40 (B.length s) ++ B.unpack res
+        writeIORef gcref (xs, ys ++ [x])
+        return True
+
+reset :: SerialPort -> IO ()
+reset port = do
+    liftIO $ send port $ B.pack "\^X"
+    res <- liftIO $ getSerial port
+    putStr $ B.unpack res
+
+pad :: Int -> Int -> String
+pad w l = replicate (max (w - l) 0) ' '
+
