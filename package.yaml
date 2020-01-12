@@ -25,6 +25,10 @@ dependencies:
 - bytestring
 - haskeline
 - serialport
+- directory
+- process
+- monad-loops
+- extra
 
 library:
   source-dirs: src
