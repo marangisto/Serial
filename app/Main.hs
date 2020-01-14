@@ -124,7 +124,7 @@ singleStep opts port gcref = readIORef gcref >>= \gc -> case gc of
         then do
             let (ts:ws) = words gcode
                 ticks = read ts
-            when (ticks > 0) $ liftIO $ threadDelay $ ticks * 1000
+            when (ticks > 0) $ liftIO $ threadDelay $ ticks * 1500
             send port $ B.pack $ unwords ws <> "\n"
         else do
             send port $ B.snoc s '\n'
