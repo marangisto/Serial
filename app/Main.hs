@@ -54,14 +54,14 @@ main = do
                 (file:[])   -> do { load ref file; return ref }
                 _           -> error "multi-file load not yet supported"
     withSerial port defaultSerialSettings { commSpeed = CS115200 } $ \port -> do
-        --liftIO $ threadDelay 100000
+--        liftIO $ threadDelay 100000
         getSerial port >>= putStr . B.unpack
         processInput opts port =<< liftIO initial
 
 processInput :: Options -> SerialPort -> IORef GCRef -> IO ()
 processInput opts port gcref = runInputT defaultSettings loop
     where loop :: InputT IO ()
-          loop = getInputLine "> " >>= \x -> case x of
+          loop | midi opts = getInputLine "> " >>= \x -> case x of
               Nothing -> quit
               Just cmd | Just x <- stripPrefix ":" cmd -> if x == "q" then quit else do
                   e <- liftIO $ try $ localCommand opts port gcref x
@@ -72,6 +72,10 @@ processInput opts port gcref = runInputT defaultSettings loop
                   res <- liftIO $ getSerial port
                   outputStr $ B.unpack res
                   loop
+               | otherwise = do
+                res <- liftIO $ getSerial port
+                outputStr $ B.unpack res
+                loop
           quit = do
               outputStr "quitting..."
               --liftIO $ threadDelay 1000000
@@ -86,6 +90,14 @@ localCommand opts port gcref cmd = case cmd of
     "r"         -> void $ iterateWhile id $ singleStep opts port gcref
     "x"         -> reset port
     "rew"       -> modifyIORef' gcref $ \(h, t) -> (t ++ h, [])
+    "c1"        -> void $ calibrate opts port 1
+    "c2"        -> void $ calibrate opts port 2
+    "c3"        -> void $ calibrate opts port 3
+    "c4"        -> void $ calibrate opts port 4
+    "c5"        -> void $ calibrate opts port 5
+    "c6"        -> void $ calibrate opts port 6
+    "c7"        -> void $ calibrate opts port 7
+    "c8"        -> void $ calibrate opts port 8
     ('!':str)   -> void $ system str
     _           -> error "unrecognized gcs command"
 
@@ -141,4 +153,15 @@ reset port = do
 
 pad :: Int -> Int -> String
 pad w l = replicate (max (w - l) 0) ' '
+
+calibrate :: Options -> SerialPort -> Int -> IO Bool
+calibrate opts port chan = do
+    let xs = zip [1..] $ concat $ replicate 10
+            [ B.pack $ "100 " <> show (90 + chan) <> " 93 127"
+            , B.pack $ "0 " <> show (80 + chan) <> " 93 0"
+            , B.pack $ "100 " <> show (90 + chan) <> " 45 127"
+            , B.pack $ "0 " <> show (80 + chan) <> " 45 0"
+            ]
+    gcref <- newIORef (xs, [])
+    iterateWhile id $ singleStep opts port gcref
 
