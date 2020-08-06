@@ -135,8 +135,8 @@ singleStep opts port gcref = readIORef gcref >>= \gc -> case gc of
         if midi opts
         then do
             let (ts:ws) = words gcode
-                ticks = read ts
-            when (ticks > 0) $ liftIO $ threadDelay $ ticks * 1500
+                seconds = read ts
+            when (seconds > 0) $ liftIO $ threadDelay $ round $ seconds * 1e6
             send port $ B.pack $ unwords ws <> "\n"
         else do
             send port $ B.snoc s '\n'
