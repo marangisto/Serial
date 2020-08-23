@@ -157,9 +157,9 @@ pad w l = replicate (max (w - l) 0) ' '
 calibrate :: Options -> SerialPort -> Int -> IO Bool
 calibrate opts port chan = do
     let xs = zip [1..] $ concat $ replicate 10
-            [ B.pack $ "100 " <> show (90 + chan) <> " 93 127"
+            [ B.pack $ "0.1 " <> show (90 + chan) <> " 93 127"
             , B.pack $ "0 " <> show (80 + chan) <> " 93 0"
-            , B.pack $ "100 " <> show (90 + chan) <> " 45 127"
+            , B.pack $ "0.1 " <> show (90 + chan) <> " 45 127"
             , B.pack $ "0 " <> show (80 + chan) <> " 45 0"
             ]
     gcref <- newIORef (xs, [])
