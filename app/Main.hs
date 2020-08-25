@@ -98,6 +98,7 @@ localCommand opts port gcref cmd = case cmd of
     "c6"        -> void $ calibrate opts port 6
     "c7"        -> void $ calibrate opts port 7
     "c8"        -> void $ calibrate opts port 8
+    "c"         -> mapM_ (clear opts port) [1..8]
     ('!':str)   -> void $ system str
     _           -> error "unrecognized gcs command"
 
@@ -162,6 +163,12 @@ calibrate opts port chan = do
             , B.pack $ "0.1 " <> show (90 + chan) <> " 45 127"
             , B.pack $ "0 " <> show (80 + chan) <> " 45 0"
             ]
+    gcref <- newIORef (xs, [])
+    iterateWhile id $ singleStep opts port gcref
+
+clear :: Options -> SerialPort -> Int -> IO Bool
+clear opts port chan = do
+    let xs = zip [1..] [ B.pack $ "0 " <> show (80 + chan) <> " 57 0" ]
     gcref <- newIORef (xs, [])
     iterateWhile id $ singleStep opts port gcref
 
