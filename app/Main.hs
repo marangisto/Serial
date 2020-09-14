@@ -22,6 +22,7 @@ data Options = Options
     { port      :: FilePath
     , dir       :: Maybe FilePath
     , midi      :: Bool
+    , speed     :: Double
     , files     :: [FilePath]
     } deriving (Show, Eq, Data, Typeable)
 
@@ -30,6 +31,7 @@ options = Main.Options
     { port = def &= help "serial port"
     , dir = def &= help "working directory"
     , midi = def &= help "midi-mode"
+    , speed = 1.0 &= help "relative speed"
     , files = def &= args &= typ "FILES"
     } &=
     verbosity &=
@@ -137,7 +139,7 @@ singleStep opts port gcref = readIORef gcref >>= \gc -> case gc of
         then do
             let (ts:ws) = words gcode
                 seconds = read ts
-            when (seconds > 0) $ liftIO $ threadDelay $ round $ seconds * 1e6
+            when (seconds > 0) $ liftIO $ threadDelay $ round $ seconds * 1e6 / speed opts
             send port $ B.pack $ unwords ws <> "\n"
         else do
             send port $ B.snoc s '\n'
