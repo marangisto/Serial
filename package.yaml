@@ -29,6 +29,7 @@ dependencies:
 - process
 - monad-loops
 - extra
+- random
 
 library:
   source-dirs: src

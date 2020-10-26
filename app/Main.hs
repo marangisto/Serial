@@ -7,6 +7,7 @@ import System.Hardware.Serialport
 import System.Console.Haskeline
 import System.Process (system)
 import System.Directory
+import System.Random
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.IO.Class
@@ -92,6 +93,7 @@ localCommand opts port gcref cmd = case cmd of
     "r"         -> void $ iterateWhile id $ singleStep opts port gcref
     "x"         -> reset port
     "rew"       -> modifyIORef' gcref $ \(h, t) -> (t ++ h, [])
+    "a"         -> void $ autoTune opts port 1
     "c1"        -> void $ calibrate opts port 1
     "c2"        -> void $ calibrate opts port 2
     "c3"        -> void $ calibrate opts port 3
@@ -167,6 +169,18 @@ calibrate opts port chan = do
             ]
     gcref <- newIORef (xs, [])
     iterateWhile id $ singleStep opts port gcref
+
+autoTune :: Options -> SerialPort -> Int -> IO Bool
+autoTune opts port chan = do
+    rs <- mapM (const $ (+57) . (*12) <$> randomRIO (-3, 6)) [1..200]
+    let xs = zip [1..] $ concatMap (play chan) rs
+    gcref <- newIORef (xs, [])
+    iterateWhile id $ singleStep opts port gcref
+    where play :: Int -> Int -> [B.ByteString]
+          play chan key = 
+            [ B.pack $ "0.05 " <> show (90 + chan) <> " " <> show key <> " 127"
+            , B.pack $ "0 " <> show (80 + chan) <> " " <> show key <> " 0"
+            ]
 
 clear :: Options -> SerialPort -> Int -> IO Bool
 clear opts port chan = do
