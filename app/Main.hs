@@ -93,7 +93,14 @@ localCommand opts port gcref cmd = case cmd of
     "r"         -> void $ iterateWhile id $ singleStep opts port gcref
     "x"         -> reset port
     "rew"       -> modifyIORef' gcref $ \(h, t) -> (t ++ h, [])
-    "a"         -> void $ autoTune opts port 1
+    "a1"        -> void $ autoTune opts port 1
+    "a2"        -> void $ autoTune opts port 2
+    "a3"        -> void $ autoTune opts port 3
+    "a4"        -> void $ autoTune opts port 4
+    "a5"        -> void $ autoTune opts port 5
+    "a6"        -> void $ autoTune opts port 6
+    "a7"        -> void $ autoTune opts port 7
+    "a8"        -> void $ autoTune opts port 8
     "c1"        -> void $ calibrate opts port 1
     "c2"        -> void $ calibrate opts port 2
     "c3"        -> void $ calibrate opts port 3
@@ -172,7 +179,7 @@ calibrate opts port chan = do
 
 autoTune :: Options -> SerialPort -> Int -> IO Bool
 autoTune opts port chan = do
-    rs <- mapM (const $ (+57) . (*12) <$> randomRIO (-3, 6)) [1..200]
+    rs <- mapM (const $ (+57) . (*12) <$> randomRIO (-2, 5)) [1..200]
     let xs = zip [1..] $ concatMap (play chan) rs
     gcref <- newIORef (xs, [])
     iterateWhile id $ singleStep opts port gcref
