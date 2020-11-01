@@ -13,7 +13,7 @@ packages:
     hackage: serialport-0.4.7
 snapshots:
 - completed:
-    size: 499550
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/nightly/2019/1/4.yaml
-    sha256: 105d11ea322d8109f2ba46f85c92e712fa86ddc4f1cb929ce438eac15162450e
-  original: nightly-2019-01-04
+    size: 532380
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/16/15.yaml
+    sha256: 3b5f2a699aa5ed3abbc30410062bf743926f0868ce3eeb5655370c6c6cc1a9f4
+  original: lts-16.15
